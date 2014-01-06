@@ -67,8 +67,8 @@ public:
 
 class ExpatParserHandlers;
 
-// XXX: Treat as private.
 extern "C" {
+    // these two are friends, so must be declared up front. The rest are just static inline in the source.
     void ExpatParserHandlers_startElementTrampoline(void *userData, const XML_Char *name, const XML_Char **attribs);
     void ExpatParserHandlers_endElementTrampoline(void *userData, const XML_Char *name);
 }
