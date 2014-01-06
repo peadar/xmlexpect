@@ -1,11 +1,14 @@
 <do>
-    <network host="localhost" service="25"/> 
+    <network>
+        <host>localhost</host>
+        <service>25</service>
+    </network>
     <timeout sec="50000"/>
-    <e>220 .*<cr/><lf/></e>
-    <s>EHLO localhost.int<cr/><lf/></s>
-    <e>250 .*<cr/><lf/></e>
-    <s>MAIL From:&lt;foo@bar.com&gt; SIZE=2791<cr/><lf/></s>
-    <e>250 .*<cr/><lf/></e>
-    <s>RCPT To:&lt;bar@foo.com&gt;<cr/><lf/>DATA<cr/><lf/></s>
+    <e>220 .*<crlf/></e>
+    <s>EHLO localhost.int<crlf/></s>
+    <e>250 .*<crlf/></e>
+    <s>MAIL From:&lt;foo@bar.com&gt; SIZE=1234<crlf/></s>
+    <e>250 .*<crlf/></e>
+    <s>RCPT To:&lt;bar@foo.com&gt;<crlf/>DATA<crlf/></s>
     <e>ANYTHING</e>
 </do>
