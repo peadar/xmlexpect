@@ -1031,8 +1031,11 @@ ExpectStrcat::ExpectStrcat(const char **)
 void
 ExpectStrcat::write(ExpectProgram &program, std::ostream &os) const
 {
-    for (const ExpectCharacterData *child = dynamic_cast<const ExpectCharacterData *>(firstChild); child; child = dynamic_cast<const ExpectCharacterData *>(child->nextSibling))
-	child->write(program, os);
+    for (const ExpectNode *child = firstChild; child; child = child->nextSibling) {
+        const ExpectCharacterData *chars = dynamic_cast<const ExpectCharacterData *>(child);
+        if (chars)
+            chars->write(program, os);
+    }
 }
 
 
