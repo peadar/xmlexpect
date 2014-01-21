@@ -1,16 +1,14 @@
 /*
  * XML Expect dialog mini-language implementation
- *
- * (c) Peter Edwards, March 2004.
- *
- * $Id: xmlExpect.cc,v 1.18 2004/08/29 11:36:03 petere Exp $
  */
 
 #include <poll.h>
-#include <arpa/telnet.h>
 #include <regex.h>
 #include <errno.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <arpa/telnet.h>
 
 #include <iostream>
 #include <string>
@@ -27,40 +25,120 @@
  * Classes
  */
 
+struct Parameter {
+    int idx;
+    std::string name;
+    std::string dflt;
+    bool required;
+
+    Parameter(std::map<std::string, Parameter *> &params, const std::string &&name_, const std::string &&dflt_)
+        : name(name_)
+        , dflt(dflt_)
+    {
+        params[name] = this;
+        required = false;
+    }
+
+    Parameter(std::map<std::string, Parameter *> &params, const std::string &&name_)
+        : name(name_)
+    {
+        params[name] = this;
+        required = true;
+    }
+};
+
+class ExpectFactory {
+public:
+    ExpectFactory(const std::string &name_) : name(name_) {}
+    static ExpectNode *create(ExpectNode *parent, const std::string &name, const Attributes &attrs);
+    Parameter *getParameter(const std::string &name) const {
+        auto i = params.find(name);
+        return i == params.end() ? i->second : nullptr;
+    }
+protected:
+    virtual ExpectNode *createNode(const Attributes &) = 0;
+    std::map<std::string, Parameter *> params;
+private:
+    typedef  std::map<std::string, ExpectFactory *> Factories;
+    static Factories allFactories;
+    std::string name;
+};
+
+ExpectFactory::Factories ExpectFactory::allFactories;
+
+template <typename T> struct DfltExpectFactory : public ExpectFactory {
+    ExpectNode *createNode(const Attributes &attrs) { return new T(attrs); }
+    DfltExpectFactory(const std::string &name_) : ExpectFactory(name_) { }
+};
+
 class ExpectNetwork : public ExpectElement {
     NetworkConnection net;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectNetwork(const char **);
+    ExpectNetwork(const Attributes &);
 };
+
+struct ExpectNetworkFactory : public DfltExpectFactory<ExpectNetwork> {
+    Parameter host{params, "host", "localhost"};
+    Parameter port{params, "port"};
+    ExpectNetworkFactory() : DfltExpectFactory("network") {}
+};
+ExpectNetworkFactory network;
 
 class ExpectListen : public ExpectElement {
     ListenConnection net;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectListen(const char **);
+    ExpectListen(const Attributes &);
 };
+struct ExpectListenFactory : public DfltExpectFactory<ExpectListen> {
+    Parameter port{params, "port"};
+    ExpectListenFactory() : DfltExpectFactory("listen") {}
+};
+ExpectListenFactory listen;
 
 class ExpectVariable : public ExpectCharacterData {
     std::string key;
     std::string def;
 public:
     virtual void write(ExpectProgram &, std::ostream &) const;
-    ExpectVariable(const char **attributes);
+    ExpectVariable(const Attributes &);
 };
+struct ExpectVariableFactory : public DfltExpectFactory<ExpectVariable> {
+    Parameter port{params, "get"};
+    ExpectVariableFactory() : DfltExpectFactory("variable") {}
+};
+ExpectVariableFactory variable;
+
 
 class ExpectModem : public ExpectElement {
-    ModemConnection modem;
+    ModemConnection connection;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectModem(const char **);
+    ExpectModem(const Attributes &attrs);
 };
 
+struct ExpectModemFactory : public DfltExpectFactory<ExpectModem> {
+    Parameter device{params, "device"};
+    Parameter speed{params, "speed","9600"};
+    Parameter bits{params, "bits", "8"};
+    Parameter flowXonXoff{params, "xonxoff", "false"};
+    Parameter flowHard{params, "rtscts", "true"};
+    Parameter parity{params, "parity", "none"};
+    ExpectModemFactory() : DfltExpectFactory("modem") {}
+};
+ExpectModemFactory modem;
+
 class ExpectSleep : public ExpectElement {
-    int delay;
+    int delayUsec;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectSleep(const char **attributes);
+    ExpectSleep(const Attributes &attributes);
+};
+
+struct ExpectSleepFactory : public DfltExpectFactory<ExpectSleep> {
+    Parameter seconds{params, "seconds"};
+    ExpectSleepFactory() : DfltExpectFactory("sleep") {}
 };
 
 class ExpectSend : public ExpectElement {
@@ -73,15 +151,15 @@ class ExpectLog : public ExpectElement {
      int level;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectLog(const char **attributes);
+    ExpectLog(const Attributes &attributes);
     ~ExpectLog();
 };
 
 class ExpectDrip : public ExpectElement {
-     bool rate;
+    unsigned rate;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectDrip(const char **attributes);
+    ExpectDrip(const Attributes &attributes);
     ~ExpectDrip();
 };
 
@@ -92,10 +170,10 @@ public:
 };
 
 class ExpectTimeout : public ExpectElement {
-    int value;
+    int usecs;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectTimeout(const char **attribs);
+    ExpectTimeout(const Attributes &);
 };
 
 class ExpectChoose : public ExpectControlElement {
@@ -106,49 +184,48 @@ public:
 
 class ExpectIf : public ExpectControlElement {
 public:
-    ExpectIf(const char **);
+    ExpectIf(const Attributes &);
     virtual void execute(ExpectProgram &program) const;
 };
 
 class ExpectStrlen : public ExpectCharacterData {
 public:
-    ExpectStrlen(const char **);
+    ExpectStrlen(const Attributes &);
     virtual void write(ExpectProgram &, std::ostream &) const;
 };
 
 class ExpectStrcat : public ExpectCharacterData {
 public:
-    ExpectStrcat(const char **);
+    ExpectStrcat(const Attributes &);
     virtual void write(ExpectProgram &, std::ostream &) const;
 };
 
 class ExpectStreq : public ExpectCharacterData {
 public:
-    ExpectStreq(const char **);
+    ExpectStreq(const Attributes &);
     virtual void write(ExpectProgram &, std::ostream &) const;
 };
 
 class ExpectThen : public ExpectElement {
 public:
-    ExpectThen(const char **);
+    ExpectThen(const Attributes &);
 };
 
 class ExpectElse : public ExpectElement {
 public:
-    ExpectElse(const char **);
+    ExpectElse(const Attributes &);
 };
 
 class ExpectPrint : public ExpectElement {
 public:
-    ExpectPrint(const char **);
+    ExpectPrint(const Attributes &);
     virtual void execute(ExpectProgram &program) const;
 };
 
 class ExpectRawCharacterData : public ExpectCharacterData {
-    char *data;
-    int len;
+    std::string data;
 public:
-    ExpectRawCharacterData(const char *data, int len, bool stripCtrl);
+    ExpectRawCharacterData(const std::string &data, bool stripCtrl);
     ~ExpectRawCharacterData();
     void write(ExpectProgram &, std::ostream &) const;
 };
@@ -156,7 +233,7 @@ public:
 class ExpectCtrl : public ExpectCharacterData {
     char character;
 public:
-    ExpectCtrl(const char **attributes);
+    ExpectCtrl(const Attributes &);
     void write(ExpectProgram &, std::ostream &) const;
 };
 
@@ -170,7 +247,7 @@ class ExpectVt100 : public ExpectCharacterData {
     static Vt100EscapeCodes escapes;
 
 public:
-    ExpectVt100(const char **attributes);
+    ExpectVt100(const Attributes &);
     void write(ExpectProgram &, std::ostream &) const;
 };
 
@@ -185,20 +262,54 @@ class ExpectDo : public ExpectElement {
     std::string status;
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectDo(const char **);
+    ExpectDo(const Attributes &);
 };
 
 class ExpectOnError : public ExpectElement {
 public:
     virtual void execute(ExpectProgram &program) const;
-    ExpectOnError(const char **);
+    ExpectOnError(const Attributes &);
 };
 
 class ExpectDefaultElement : public ExpectElement {
 private:
 public:
-    ExpectDefaultElement(const char *, const char **attributes);
+    ExpectDefaultElement(const std::string &, const Attributes &);
 };
+
+template <class T> bool
+set(T &value, const Attributes &attrs, const std::string &name)
+{
+    Attributes::const_iterator i = attrs.find(name);
+    if (i == attrs.end())
+        return false;
+    std::istringstream is;
+    is.str(i->second);
+    is >> value;
+    return true;
+}
+
+template <> bool
+set(ModemConnection::Parity &value, const Attributes &attrs, const std::string &name)
+{
+    std::string s;
+    if (!set(s, attrs, name))
+        return false;
+    if (s == "even")
+        value = ModemConnection::even;
+    else if (s == "odd")
+        value = ModemConnection::odd;
+    return true;
+}
+
+template <class T> bool
+set(T &value, const Attributes &attrs, const std::string &name, const T &&dfltValue)
+{
+    if (set(value, attrs, name))
+        return true;
+    value = dfltValue;
+    return false;
+}
 
 
 /*
@@ -243,11 +354,11 @@ ExpectHandlers::root()
 }
 
 void
-ExpectHandlers::characterData(const char *data, int len)
+ExpectHandlers::characterData(const std::string &data)
 {
     if (sp > 0 && dynamic_cast<ExpectControlElement *>(stack[sp - 1]))
 	return;
-    addNode(new ExpectRawCharacterData(data, len, true));
+    addNode(new ExpectRawCharacterData(data, true));
 }
 
 void
@@ -262,80 +373,72 @@ ExpectHandlers::addNode(ExpectNode *node)
 }
 
 ExpectNode *
-ExpectHandlers::getNode(const char *name, const char **attributes)
+ExpectHandlers::getNode(const std::string &name, const Attributes &attributes)
 {
-    if (!strcmp(name, "get"))
+    if (name == "get")
 	return new ExpectVariable(attributes);
-    if (!strcmp(name, "template"))
-	return new ExpectTemplate(attributes);
-    if (!strcmp(name, "listen"))
+    if (name == "listen")
 	return new ExpectListen(attributes);
-    if (!strcmp(name, "network"))
+    if (name == "network")
 	return new ExpectNetwork(attributes);
-    if (!strcmp(name, "modem"))
+    if (name == "modem")
 	return new ExpectModem(attributes);
-    if (!strcmp(name, "choose"))
+    if (name == "choose")
 	return new ExpectChoose();
-    if (!strcmp(name, "expect") || !strcmp(name, "e"))
+    if (name == "expect" || name == "e")
 	return new ExpectExpect();
-    if (!strcmp(name, "send") || !strcmp(name, "s"))
+    if (name == "send" || name == "s")
 	return new ExpectSend();
-    if (!strcmp(name, "do"))
+    if (name == "do")
 	return new ExpectDo(attributes);
-    if (!strcmp(name, "timeout"))
+    if (name == "timeout")
 	return new ExpectTimeout(attributes);
-    if (!strcmp(name, "br"))
-	return new ExpectRawCharacterData("\r\n", 2, false);
-    if (!strcmp(name, "comment"))
+    if (name == "br")
+	return new ExpectRawCharacterData("\r\n", false);
+    if (name == "comment")
 	return new ExpectComment();
-    if (!strcmp(name, "ctrl"))
+    if (name == "ctrl")
 	return new ExpectCtrl(attributes);
-    if (!strcmp(name, "vt100"))
+    if (name == "vt100")
 	return new ExpectVt100(attributes);
-    if (!strcmp(name, "log"))
+    if (name == "log")
 	return new ExpectLog(attributes);
-    if (!strcmp(name, "cr"))
-	return new ExpectRawCharacterData("\r", 1, false);
-    if (!strcmp(name, "lf"))
-	return new ExpectRawCharacterData("\n", 1, false);
-    if (!strcmp(name, "crlf"))
-	return new ExpectRawCharacterData("\r\n", 2, false);
-    if (!strcmp(name, "if"))
+    if (name == "cr")
+	return new ExpectRawCharacterData("\r", false);
+    if (name == "lf")
+	return new ExpectRawCharacterData("\n", false);
+    if (name == "crlf")
+	return new ExpectRawCharacterData("\r\n", false);
+    if (name == "if")
 	return new ExpectIf(attributes);
-    if (!strcmp(name, "then"))
+    if (name == "then")
 	return new ExpectThen(attributes);
-    if (!strcmp(name, "else"))
+    if (name == "else")
 	return new ExpectElse(attributes);
-    if (!strcmp(name, "print"))
+    if (name == "print")
 	return new ExpectPrint(attributes);
-    if (!strcmp(name, "sleep"))
+    if (name == "sleep")
 	return new ExpectSleep(attributes);
-    if (!strcmp(name, "strlen"))
+    if (name == "strlen")
 	return new ExpectStrlen(attributes);
-    if (!strcmp(name, "strcat"))
+    if (name == "strcat")
 	return new ExpectStrcat(attributes);
-    if (!strcmp(name, "streq"))
+    if (name == "streq")
 	return new ExpectStreq(attributes);
-    if (!strcmp(name, "onerror"))
+    if (name == "onerror")
 	return new ExpectOnError(attributes);
-    if (!strcmp(name, "drip"))
+    if (name == "drip")
 	return new ExpectDrip(attributes);
 
-    if (!strcmp(name, "include")) {
-	const char *filename = 0, **cpp;
-	for (cpp = attributes; cpp[0]; cpp++) {
-	    if (!strcmp(cpp[0], "file"))
-		filename = cpp[1];
-	}
-	if (filename == 0)
-	    abort();
+    if (name == "include") {
+        std::string filename;
+        set(filename, attributes, "file");
 	ExpectHandlers handlers;
 	ExpatParser parser(handlers, "UTF-8");
 	parser.parseFile(filename);
 	return handlers.root();
     }
     throw UnknownElement(name);
-    abort();
 }
 
 std::ostream &
@@ -345,7 +448,7 @@ UnknownElement::describe(std::ostream &os) const
 }
 
 void
-ExpectHandlers::startElement(const char *name, const char **attributes)
+ExpectHandlers::startElement(const std::string &name, const Attributes &attributes)
 {
     ExpectNode *el = getNode(name, attributes);
     addNode(el);
@@ -387,13 +490,13 @@ ExpectNode::~ExpectNode()
     }
 }
 
-ExpectCtrl::ExpectCtrl(const char **attributes)
+ExpectCtrl::ExpectCtrl(const Attributes &attributes)
 {
-    for (const char **cpp = attributes; cpp[0]; cpp += 2)
-	if (!strcmp(cpp[0], "char"))
-	    character = toupper(cpp[1][0]) - 'A' + 1;
-	else if (!strcmp(cpp[0], "code"))
-	    character = atoi(cpp[1]);
+    std::string chr;
+    if (set(chr, attributes, "char"))
+        character = toupper(chr[0] - 'A' + 1);
+    else if (set(chr, attributes, "code"))
+        character = strtol(chr.c_str(), 0, 0);
 }
 
 void
@@ -402,11 +505,11 @@ ExpectCtrl::write(ExpectProgram &, std::ostream &os) const
     os << character;
 }
 
-ExpectVt100::ExpectVt100(const char **attributes)
+ExpectVt100::ExpectVt100(const Attributes &attributes)
 {
-    for (const char **cpp = attributes; cpp[0]; cpp += 2)
-	if (!strcmp(cpp[0], "key"))
-	    output = escapes[cpp[1]];
+    std::string key;
+    if (set(key, attributes, "key"))
+        output = escapes[key];
 }
 
 void
@@ -415,19 +518,10 @@ ExpectVt100::write(ExpectProgram &, std::ostream &os) const
     os << output;
 }
 
-ExpectLog::ExpectLog(const char **attributes)
+ExpectLog::ExpectLog(const Attributes &attributes)
 {
-    const char **cpp;
-
-    level = 1;
-    message = "";
-    for (cpp = attributes; cpp[0]; cpp += 2) {
-	    if (!strcmp(cpp[0], "level")) {
-		level = atoi(cpp[1]);
-	    } else if (!strcmp(cpp[0], "message")) {
-		message = cpp[1];
-	    }
-    }
+    set(level, attributes, "level", 1);
+    set(message, attributes, "message");
 }
 
 void
@@ -478,25 +572,23 @@ ExpectExpect::ExpectExpect()
 {
 }
 
-ExpectSleep::ExpectSleep(const char **attributes)
+ExpectSleep::ExpectSleep(const Attributes &attributes)
 {
-    const char **cpp;
-    delay = 500;
-    for (cpp = attributes; cpp[0]; cpp++) {
-	if (strcmp(cpp[0], "msec") == 0)
-	    delay = atoi(cpp[1]) * 1000;
-	else if (strcmp(cpp[0], "usec") == 0)
-	    delay = atoi(cpp[1]);
-	else if (strcmp(cpp[0], "sec") == 0)
-	    delay = atoi(cpp[1]) * 1000000;
-    }
+    if (set(delayUsec, attributes, "usec"))
+        ;
+    else if (set(delayUsec, attributes, "msec"))
+        delayUsec *= 1000;
+    else if (set(delayUsec, attributes, "sec"))
+        delayUsec *= 1000000;
+    else
+        delayUsec = 5000000;
 }
 
 void
 ExpectSleep::execute(ExpectProgram &program) const
 {
     program.flush();
-    usleep(delay);
+    ::usleep(delayUsec);
 }
 
 int
@@ -536,7 +628,8 @@ ExpectTimeoutException::describe(std::ostream &output) const
     <<". current data: " << currentData;
 }
 
-ExpectDefaultElement::ExpectDefaultElement(const char *name, const char **attributes)
+ExpectDefaultElement::ExpectDefaultElement(const std::string &name,
+            const Attributes &attributes)
 {
 }
 
@@ -564,28 +657,20 @@ ExpectSend::execute(ExpectProgram &program) const
 
 }
 
-ExpectRawCharacterData::ExpectRawCharacterData(const char *newData, int newLen, bool stripCtrl)
-    : data(newData ? new char[newLen]: 0)
-    , len(0)
+ExpectRawCharacterData::ExpectRawCharacterData(const std::string &newData, bool stripCtrl)
 {
-    if (newData) {
-        // Remove control characters from data.
-        for (int i = 0; i < newLen; ++i) {
-            if (!stripCtrl || newData[i] >= 32)
-                data[len++] = newData[i];
-        }
-    }
+    // Remove control characters from data.
+    for (char c : newData)
+        if (!stripCtrl || c >= 32)
+            data.push_back(c);
 }
 
-ExpectRawCharacterData::~ExpectRawCharacterData()
-{
-    delete [] data;
-}
+ExpectRawCharacterData::~ExpectRawCharacterData() { }
 
 void
 ExpectRawCharacterData::write(ExpectProgram &, std::ostream &os) const
 {
-    os.write(data, len);
+    os << data;
 }
 
 void
@@ -598,7 +683,7 @@ ExpectProgram::ExpectProgram(int maxBuf, std::map<std::string, std::string> &var
     , lastVisited(0)
     , readFd(-1)
     , writeFd(-1)
-    , timeout(2000)
+    , timeoutUsec(2000000)
     , expectDelay(50)
     , receiveSize(maxBuf - 1)
     , receiveData(new char[maxBuf])
@@ -692,7 +777,7 @@ ExpectProgram::receiveRaw()
     pfd.fd = readFd;
     pfd.events = POLLIN|POLLPRI;
 
-    if (poll(&pfd, 1, timeout) == 0) {
+    if (poll(&pfd, 1, timeoutUsec / 1000) == 0) {
 	if (poll(&pfd, 1, 0) == 1)
 	    abort();
 	throw UnixException(ETIMEDOUT, "poll");
@@ -821,32 +906,26 @@ ExpectProgram::~ExpectProgram()
     delete[] sendData;
 }
 
-ExpectTimeout::ExpectTimeout(const char **attribs)
+ExpectTimeout::ExpectTimeout(const Attributes &attribs)
 {
-    const char *to = ExpatParserHandlers::getAttribute(attribs, "msec");
-    value = to ? atoi(to) : 2000;
-
-    for (const char **cpp = attribs; cpp[0]; cpp += 2) {
-	int count = atoi(cpp[1]);
-	if (!strcmp(cpp[0], "msec"))
-	    value = count;
-	else if (!strcmp(cpp[0], "sec"))
-	    value = count * 1000;
-    }
+    if (set(usecs, attribs, "usec"))
+        ;
+    else if (set(usecs, attribs, "msec"))
+        usecs *= 1000;
+    else if (set(usecs, attribs, "msec"))
+        usecs *= 1000000;
 }
 
 void
 ExpectTimeout::execute(ExpectProgram &prog) const
 {
-    prog.timeout = value;
+    prog.timeoutUsec = usecs;
 }
 
-ExpectVariable::ExpectVariable(const char **attributes)
+ExpectVariable::ExpectVariable(const Attributes &attributes)
 {
-    const char *v = ExpatParserHandlers::getAttribute(attributes, "key");
-    key = v ? v : "";
-    v = ExpatParserHandlers::getAttribute(attributes, "default");
-    def = v ? v : "";
+    set(key, attributes, "key");
+    set(def, attributes, "default");
 }
 
 void
@@ -855,15 +934,11 @@ ExpectVariable::write(ExpectProgram &program, std::ostream &os) const
     os << program.variables[key];
 }
 
-ExpectTemplate::ExpectTemplate(const char **attributes)
+ExpectListen::ExpectListen(const Attributes &attribs)
+    : net()
 {
-    const char *cname = ExpatParserHandlers::getAttribute(attributes, "name");
-    name = cname ? cname : "unnamed";
-}
-
-ExpectListen::ExpectListen(const char **attribs)
-    : net(attribs, 0)
-{
+    set(net.host, attribs, "host");
+    set(net.service, attribs, "port");
 }
 
 void
@@ -873,11 +948,11 @@ ExpectListen::execute(ExpectProgram &program) const
     program.readFd = program.writeFd = net.connect();
 }
 
-
-ExpectNetwork::ExpectNetwork(const char **attribs)
-    : net(attribs, 0)
+ExpectNetwork::ExpectNetwork(const Attributes &attribs)
+    : net()
 {
 }
+
 void
 ExpectNetwork::execute(ExpectProgram &program) const
 {
@@ -885,22 +960,26 @@ ExpectNetwork::execute(ExpectProgram &program) const
     program.readFd = program.writeFd = net.connect();
 }
 
-ExpectModem::ExpectModem(const char **attribs)
-    : modem(attribs, 0)
+ExpectModem::ExpectModem(const Attributes &settings)
 {
+    set(connection.device, settings, "device");
+    set(connection.speed, settings, "speed");
+    set(connection.bits, settings, "bits");
+    set(connection.flowXonXoff, settings, "xonxoff");
+    set(connection.flowHard, settings, "rtscts");
+    set(connection.parity, settings, "parity");
 }
 
 void
 ExpectModem::execute(ExpectProgram &program) const
 {
     program.closeFds();
-    program.readFd = program.writeFd = modem.connect();
+    program.readFd = program.writeFd = connection.connect();
 }
 
-ExpectDo::ExpectDo(const char **attributes)
+ExpectDo::ExpectDo(const Attributes &attributes)
 {
-    const char *p = ExpatParserHandlers::getAttribute(attributes, "status");
-    status = p ? p : "";
+    set(status, attributes, "status");
 }
 
 void
@@ -922,7 +1001,7 @@ ExpectDo::execute(ExpectProgram &program) const
     program.exceptionHandler = oldExceptionHandler;
 }
 
-ExpectOnError::ExpectOnError(const char **attribs)
+ExpectOnError::ExpectOnError(const Attributes &attribs)
     : ExpectElement()
 {
 }
@@ -933,7 +1012,7 @@ ExpectOnError::execute(ExpectProgram &program) const
     program.exceptionHandler = firstChild;
 }
 
-ExpectIf::ExpectIf(const char **)
+ExpectIf::ExpectIf(const Attributes &)
 {
 }
 
@@ -956,15 +1035,15 @@ ExpectIf::execute(ExpectProgram &program) const
 	els->execute(program);
 }
 
-ExpectThen::ExpectThen(const char **)
+ExpectThen::ExpectThen(const Attributes &)
 {
 }
 
-ExpectElse::ExpectElse(const char **)
+ExpectElse::ExpectElse(const Attributes &)
 {
 }
 
-ExpectPrint::ExpectPrint(const char **)
+ExpectPrint::ExpectPrint(const Attributes &)
 {
 }
 
@@ -975,7 +1054,7 @@ ExpectPrint::execute(ExpectProgram &program) const
 	data->write(program, std::cout);
 }
 
-ExpectStrlen::ExpectStrlen(const char **)
+ExpectStrlen::ExpectStrlen(const Attributes &)
 {
 }
 
@@ -988,16 +1067,13 @@ ExpectStrlen::write(ExpectProgram &program, std::ostream &os) const
     os << sub.str().size();
 }
 
-ExpectStreq::ExpectStreq(const char **)
+ExpectStreq::ExpectStreq(const Attributes &)
 {
 }
 
-ExpectDrip::ExpectDrip(const char **attributes)
-    : rate(0)
+ExpectDrip::ExpectDrip(const Attributes &attributes)
 {
-    const char *p = ExpatParserHandlers::getAttribute(attributes, "rate");
-    if (p)
-	rate = atoi(p);
+    set(rate, attributes, "rate", 0U);
 }
 
 void
@@ -1024,7 +1100,7 @@ ExpectStreq::write(ExpectProgram &program, std::ostream &os) const
     os << (ls.str() == rs.str());
 }
 
-ExpectStrcat::ExpectStrcat(const char **)
+ExpectStrcat::ExpectStrcat(const Attributes &)
 {
 }
 
@@ -1073,4 +1149,19 @@ ExpectNodeFilter::search(const ExpectNode *node)
             abort();
             return 0;
     }
+}
+
+ExpectNode *
+ExpectFactory::create(ExpectNode *parent, const std::string &name, const Attributes &attrs)
+{
+    auto fac = allFactories.find(name);
+    if (fac == allFactories.end()) {
+        // no element factory - maybe its a parameter of current element
+        if (parent && parent->type && parent->type->getParameter(name))
+            return new ExpectStrcat(attrs);
+        throw UnknownElement(name);
+    }
+    ExpectNode *node = fac->second->createNode(attrs);
+    node->type = fac->second;
+    return node;
 }

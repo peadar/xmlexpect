@@ -1,20 +1,20 @@
 /*
  * C++ wrapper for Expat, with stack based handlers.
- *
- * (c) Peter Edwards, March 2004.
- *
- * $Id: expatWrap.h,v 1.4 2004/06/19 13:03:53 petere Exp $
  */
 
 #ifndef expatwrap_h_guard
 #define expatwrap_h_guard
 #include "util.h"
 
+#include <map>
+
 #ifdef __FreeBSD__
 #include <bsdxml.h>
 #else
 #include <expat.h>
 #endif
+
+typedef std::map<std::string, std::string> Attributes;
 
 class ExpatInputStream {
 public:
@@ -26,7 +26,7 @@ class ExpatFileInputStream : public ExpatInputStream {
     int fd;
 public:
     void moreData(void *, int maxLen, int &populatedLen, bool &final);
-    ExpatFileInputStream(const char *fileName);
+    ExpatFileInputStream(const std::string &fileName);
     virtual ~ExpatFileInputStream();
 };
 
@@ -48,7 +48,7 @@ class UnknownElement : public XMLException {
 protected:
     std::ostream &describe(std::ostream &) const;
 public:
-    UnknownElement(const char *str) : element(str) {}
+    UnknownElement(const std::string &str) : element(str) {}
     ~UnknownElement() throw() {}
 
 };
@@ -89,7 +89,7 @@ public:
     virtual ~ExpatParser();
     void parse(ExpatInputStream &is);
     void parseSome(ExpatInputStream &, bool &final);
-    void parseFile(const char *fileName);
+    void parseFile(const std::string &fileName);
     int getCurrentLineNumber() { return XML_GetCurrentLineNumber(expatParser); }
 };
 
@@ -97,24 +97,22 @@ class ExpatParserHandlers {
     friend class ExpatParser;
     friend void ExpatParserHandlers_endElementTrampoline(void *, const XML_Char *);
 public:
-    static const char *getAttribute(const char **atts, const char *name);
-    static bool boolAttribute(const char *);
     ExpatParser *parser; // Parser we are handling events from
-    virtual void startElement(const XML_Char *name, const XML_Char **atts);
-    virtual void endElement(const XML_Char *name);
-    virtual void characterData(const XML_Char *data, int len);
-    virtual void processingInstruction(const XML_Char *target, const XML_Char *data);
-    virtual void comment(const XML_Char *comment);
+    virtual void startElement(const std::string &name, const Attributes &);
+    virtual void endElement(const std::string &);
+    virtual void characterData(const std::string &data);
+    virtual void processingInstruction(const std::string &target, const std::string &data);
+    virtual void comment(const std::string &comment);
     virtual void startCdataSection();
     virtual void endCdataSection();
-    virtual void defaultData(const XML_Char *data, int size);
-    virtual void xmlDecl(const XML_Char *version, const XML_Char *encoding, bool standAlone);
-    virtual void startDoctype(const XML_Char *docTypeName, const XML_Char *sysId, const XML_Char *pubId, bool hasInternalInternalSubset);
+    virtual void defaultData(const std::string &);
+    virtual void xmlDecl(const std::string &version, const std::string &encoding, bool standAlone);
+    virtual void startDoctype(const std::string &docTypeName, const std::string &sysId, const std::string &pubId, bool hasInternalInternalSubset);
     virtual void endDoctype();
-    virtual int externalEntityRef(const XML_Char *context,
-				  const XML_Char *base,
-				  const XML_Char *systemId,
-				  const XML_Char *publicId);
+    virtual int externalEntityRef(const std::string & context,
+				  const std::string & base,
+				  const std::string & systemId,
+				  const std::string & publicId);
     ExpatParserHandlers();
     virtual ~ExpatParserHandlers();
 };

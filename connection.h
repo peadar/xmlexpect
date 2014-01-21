@@ -5,10 +5,8 @@
 #define connection_h_guard
 
 class Connection {
-protected:
-    int facility;
 public:
-    Connection(int facility);
+    Connection();
     virtual ~Connection();
     virtual int connect() const = 0;
 };
@@ -22,34 +20,31 @@ public:
     ~ResolverException() throw();
 };
 
-class ModemConnection : public Connection {
+struct ModemConnection : public Connection {
     std::string device;
     int speed;
     int bits;
     bool flowXonXoff;
     bool flowHard;
-    bool parity;
-    bool oddParity;
-public:
-    ModemConnection(const char **settings, int facility);
+    enum Parity { none, even, odd };
+    Parity parity;
+    ModemConnection();
     ~ModemConnection();
     int connect() const;
 };
 
-class NetworkConnection : public Connection {
+struct NetworkConnection : public Connection {
     std::string host;
     std::string service;
-public:
-    NetworkConnection(const char **settings, int facility);
+    NetworkConnection();
     ~NetworkConnection();
     int connect() const;
 };
 
-class ListenConnection : public Connection {
+struct ListenConnection : public Connection {
     std::string host;
     std::string service;
-public:
-    ListenConnection(const char **settings, int facility);
+    ListenConnection();
     ~ListenConnection();
     int connect() const;
 };

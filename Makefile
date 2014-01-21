@@ -1,5 +1,5 @@
 OBJS += expatwrap.o main.o xmlexpect.o connection.o util.o
-CXXFLAGS += -g -Wall
+CXXFLAGS += -g -Wall -std=c++0x
 
 all: xmlexpect
 

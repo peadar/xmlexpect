@@ -72,38 +72,24 @@ std::ostream &operator<<(std::ostream &os, const addrinfo &ai)
     int rc = getnameinfo(ai.ai_addr, ai.ai_addrlen, host, sizeof host, service,
 		sizeof service, NI_NUMERICHOST|NI_NUMERICSERV);
 
-    if (rc)
+    if (!rc)
         return os << host << ":" << service;
     else
         return os << "(name resolution failed)";
 }
 
-NetworkConnection::NetworkConnection(const char **settings, int facility)
-    : Connection(facility)
+NetworkConnection::NetworkConnection()
+    : Connection()
     , host("localhost")
     , service("telnet")
 {
-    const char **cpp;
-    for (cpp = settings; *cpp; cpp += 2) {
-	if (!strcmp(cpp[0], "host"))
-	    host = cpp[1];
-	else if (!strcmp(cpp[0], "service"))
-	    service = cpp[1];
-    }
 }
 
-ListenConnection::ListenConnection(const char **settings, int facility)
-    : Connection(facility)
+ListenConnection::ListenConnection()
+    : Connection()
     , host("")
     , service("8080")
 {
-    const char **cpp;
-    for (cpp = settings; *cpp; cpp += 2) {
-	if (!strcmp(cpp[0], "host"))
-	    host = cpp[1];
-	else if (!strcmp(cpp[0], "service"))
-	    service = cpp[1];
-    }
 }
 
 ListenConnection::~ListenConnection()
@@ -114,8 +100,7 @@ NetworkConnection::~NetworkConnection()
 {
 }
 
-Connection::Connection(int facility)
-    : facility(facility)
+Connection::Connection()
 {
 }
 
@@ -172,40 +157,15 @@ ListenConnection::connect() const
     throw ResolverException("no usable address found", 0);
 }
 
-ModemConnection::ModemConnection(const char **settings, int facility)
-    : Connection(facility)
+ModemConnection::ModemConnection()
+    : Connection()
     , device("/dev/cuaa0")
     , speed(9600)
     , bits(8)
     , flowXonXoff(false)
     , flowHard(true)
-    , parity(false)
-    , oddParity(false)
+    , parity(none)
 {
-    const char **cpp;
-    for (cpp = settings; cpp[0]; cpp += 2) {
-	if (!strcmp(cpp[0], "port"))
-	    device = cpp[1];
-	else if (!strcmp(cpp[0], "speed"))
-	    speed = atoi(cpp[1]);
-	else if (!strcmp(cpp[0], "bits"))
-	    bits = atoi(cpp[1]);
-	else if (!strcmp(cpp[0], "rtscts"))
-	    flowHard = ExpatParserHandlers::boolAttribute(cpp[1]);
-	else if (!strcmp(cpp[0], "xonxoff"))
-	    flowXonXoff = ExpatParserHandlers::boolAttribute(cpp[1]);
-	else if (!strcmp(cpp[0], "parity")) {
-	    if (!strcasecmp(cpp[1], "none")) {
-		parity = false;
-	    } else {
-		parity = true;
-		if (!strcasecmp(cpp[1], "odd"))
-		    oddParity = true;
-		else
-		    oddParity = false;
-	    }
-	}
-    }
 }
 
 int
@@ -241,10 +201,14 @@ ModemConnection::connect() const
     else
 	io.c_cflag &= ~PARENB;
 
-    if (oddParity)
-	io.c_cflag |= PARODD;
-    else
-	io.c_cflag &= ~PARODD;
+    switch (parity) {
+        case odd:
+            io.c_cflag |= PARODD;
+            break;
+        default:
+            io.c_cflag &= ~PARODD;
+            break;
+    }
 
     io.c_cflag &= ~CSIZE;
     io.c_cflag |= bits == 7 ? CS7 : bits == 6 ? CS6 : CS8;

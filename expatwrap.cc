@@ -26,8 +26,11 @@ ExpatParserHandlers_startElementTrampoline(void *userData, const XML_Char *name,
     ExpatParser *parser = static_cast<ExpatParser *>(userData);
     if (parser->stop)
 	return;
+    Attributes cppattrs;
+    for (size_t i = 0; attribs[i]; i += 2)
+        cppattrs[attribs[i]] = attribs[i+1];
     try {
-	parser->handlers.startElement(name, attribs);
+	parser->handlers.startElement(name, cppattrs);
     }
     catch (const Exception &ex) {
 	std::stringstream ss;
@@ -50,7 +53,7 @@ characterDataTrampoline(void *userData, const XML_Char *data, int len)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.characterData(data, len);
+	p->handlers.characterData(std::string(data, len));
 }
 
 static void
@@ -90,7 +93,7 @@ defaultDataTrampoline(void *userData, const XML_Char *data, int len)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.defaultData(data, len);
+	p->handlers.defaultData(std::string(data, len));
 }
 
 static void
@@ -201,27 +204,27 @@ ExpatParserHandlers::~ExpatParserHandlers()
 }
 
 void
-ExpatParserHandlers::startElement(const XML_Char *name, const XML_Char **attribs)
+ExpatParserHandlers::startElement(const std::string &name, const Attributes &)
 {
 }
 
 void
-ExpatParserHandlers::endElement(const XML_Char *name)
+ExpatParserHandlers::endElement(const std::string &)
 {
 }
 
 void
-ExpatParserHandlers::characterData(const XML_Char *data, int len)
+ExpatParserHandlers::characterData(const std::string &data)
 {
 }
 
 void
-ExpatParserHandlers::processingInstruction(const XML_Char *target, const XML_Char *data)
+ExpatParserHandlers::processingInstruction(const std::string &, const std::string &data)
 {
 }
 
 void
-ExpatParserHandlers::comment(const XML_Char *comment)
+ExpatParserHandlers::comment(const std::string &comment)
 {
 }
 
@@ -236,17 +239,17 @@ ExpatParserHandlers::endCdataSection()
 }
 
 void
-ExpatParserHandlers::defaultData(const XML_Char *data, int len)
+ExpatParserHandlers::defaultData(const std::string &)
 {
 }
 
 void
-ExpatParserHandlers::xmlDecl(const XML_Char *version, const XML_Char *encoding, bool standAlone)
+ExpatParserHandlers::xmlDecl(const std::string &version, const std::string &encoding, bool standAlone)
 {
 }
 
 void
-ExpatParserHandlers::startDoctype(const XML_Char *docTypeName, const XML_Char *sysId, const XML_Char *pubId, bool hasInternalSubset)
+ExpatParserHandlers::startDoctype(const std::string &docTypeName, const std::string &sysId, const std::string &pubId, bool hasInternalSubset)
 {
 }
 
@@ -257,10 +260,10 @@ ExpatParserHandlers::endDoctype()
 
 int
 ExpatParserHandlers::externalEntityRef(
-				const XML_Char *context,
-				const XML_Char *base,
-				const XML_Char *systemId,
-				const XML_Char *publicId)
+				const std::string &context,
+				const std::string &base,
+				const std::string &systemId,
+				const std::string &publicId)
 {
     return 0;
 }
@@ -291,15 +294,16 @@ ExpatParser::parse(ExpatInputStream &is)
 	parseSome(is, final);
 }
 
-void ExpatParser::parseFile(const char *fileName)
+void
+ExpatParser::parseFile(const std::string &fileName)
 {
     ExpatFileInputStream s(fileName);
     parse(s);
 }
 
-ExpatFileInputStream::ExpatFileInputStream(const char *fileName)
+ExpatFileInputStream::ExpatFileInputStream(const std::string &fileName)
 {
-    if ((fd = open(fileName, O_RDONLY, 0666)) == -1)
+    if ((fd = open(fileName.c_str(), O_RDONLY, 0666)) == -1)
 	throw FileOpenException(fileName, errno);
 }
 
@@ -359,24 +363,4 @@ ParseException::describe(std::ostream &os) const
 ParseException::~ParseException()
     throw()
 {
-}
-
-const char *
-ExpatParserHandlers::getAttribute(const char **atts, const char *name)
-{
-    for (; atts[0]; atts += 2) {
-	if (!strcmp(atts[0], name))
-	    return atts[1];
-    }
-    return 0;
-}
-
-
-bool
-ExpatParserHandlers::boolAttribute(const char *p)
-{
-    return (!strcasecmp(p, "true") ||
-	    !strcasecmp(p, "yes") ||
-	    !strcasecmp(p, "y") ||
-	    !strcasecmp(p, "1"));
 }

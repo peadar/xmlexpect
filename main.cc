@@ -4,6 +4,7 @@
 
 #include "xmlexpect.h"
 #include <iostream>
+#include <unistd.h>
 
 static int
 usage()

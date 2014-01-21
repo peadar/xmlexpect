@@ -11,6 +11,7 @@
 #include "expatwrap.h"
 
 class ExpectNode;
+class ExpectFactory;
 
 class ExpectProgram {
     void stripTelnet();
@@ -25,7 +26,7 @@ public:
     const ExpectNode *lastVisited;
     int readFd;
     int writeFd;
-    int timeout;
+    int timeoutUsec;
     int expectDelay;
     int receiveSize;
     char *receiveData;
@@ -78,6 +79,7 @@ public:
     ExpectNode *nextSibling;
     ExpectNode *firstChild;
     int lineNumber;
+    ExpectFactory *type;
     virtual void execute(ExpectProgram &program) const;
     void executeChildren(ExpectProgram &program) const;
     ExpectNode();
@@ -102,16 +104,12 @@ public:
 };
 
 class ExpectElement : public ExpectNode {
+public:
+    Attributes attributes;
 };
 
 class ExpectControlElement : public ExpectNode {
     // Special element that will not receive "chardata" children.
-};
-
-class ExpectTemplate : public ExpectElement {
-public:
-    std::string name;
-    ExpectTemplate(const char **attributes);
 };
 
 struct ExpectHandlers : public ExpatParserHandlers {
@@ -119,10 +117,11 @@ struct ExpectHandlers : public ExpatParserHandlers {
     int sp;
     void addNode(ExpectNode *);
 protected:
-    void startElement(const char *name, const char **attributes);
-    void characterData(const char *data, int len);
+    void startElement(const std::string &name, const Attributes &attributes);
+    void characterData(const std::string &data);
     void endElement(const char *name);
-    virtual ExpectNode *getNode(const char *name, const char **attributes); // allows user to add extra commands.
+    virtual ExpectNode *getNode(const std::string &name,
+            const Attributes &attributes); // allows user to add extra commands.
 public:
     ExpectNode *root();
     ExpectHandlers();
