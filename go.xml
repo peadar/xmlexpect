@@ -1,8 +1,5 @@
 <do>
-    <network>
-        <host>localhost</host>
-        <service>25</service>
-    </network>
+    <network host="localhost" service="25"/>
     <timeout sec="50000"/>
     <e>220 .*<crlf/></e>
     <s>EHLO localhost.int<crlf/></s>
