@@ -2,7 +2,12 @@
     <listen service="8080"/>
     <timeout sec="50000"/>
 
-    <e>GET \(.*\) HTTP/1.1$</e>
     <e><crlf/><crlf/></e>
-    <s>HTTP/1.1 OK</s>
+    <s>
+HTTP/1.1 OK<crlf/>
+Content-Type: text/plain<crlf/>
+Connection: close<crlf/>
+<crlf/>
+hello world<crlf/>
+    </s>
 </do>
