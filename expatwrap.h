@@ -7,6 +7,8 @@
 #include "util.h"
 
 #include <map>
+#include <stack>
+#include <string>
 
 #ifdef __FreeBSD__
 #include <bsdxml.h>
@@ -50,7 +52,6 @@ protected:
 public:
     UnknownElement(const std::string &str) : element(str) {}
     ~UnknownElement() throw() {}
-
 };
 
 class ExpatParser;
@@ -74,28 +75,30 @@ extern "C" {
 }
 
 class ExpatParser {
-    const XML_Char *encoding;
+    const std::string encoding;
     XML_Char separator;
     XML_Parser expatParser;
     friend class ParseException;
-    int depth;
+    unsigned depth;
     friend void ExpatParserHandlers_startElementTrampoline(void *, const XML_Char *, const XML_Char **);
     friend void ExpatParserHandlers_endElementTrampoline(void *, const XML_Char *);
     std::string reason;
 public:
+    std::stack<ExpatParserHandlers *> handlerStack;
     bool stop;
-    ExpatParserHandlers &handlers;
-    ExpatParser(ExpatParserHandlers &handlers, const XML_Char *encoding = "UTF-8", XML_Char sep = ':');
+    ExpatParser(const std::string &&encoding = "UTF-8", XML_Char sep = ':');
     virtual ~ExpatParser();
     void parse(ExpatInputStream &is);
     void parseSome(ExpatInputStream &, bool &final);
     void parseFile(const std::string &fileName);
     int getCurrentLineNumber() { return XML_GetCurrentLineNumber(expatParser); }
+    void push(ExpatParserHandlers *newHandlers);
 };
 
 class ExpatParserHandlers {
     friend class ExpatParser;
     friend void ExpatParserHandlers_endElementTrampoline(void *, const XML_Char *);
+    unsigned pushDepth;
 public:
     ExpatParser *parser; // Parser we are handling events from
     virtual void startElement(const std::string &name, const Attributes &);
@@ -115,6 +118,7 @@ public:
 				  const std::string & publicId);
     ExpatParserHandlers();
     virtual ~ExpatParserHandlers();
+    virtual void pop(); // called when handlers leave scope.
 };
 
 #endif

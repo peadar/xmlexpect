@@ -1,0 +1,10 @@
+<one>
+    <two-a/>
+    <two-b/>
+    <two-c>
+        <three-a/>
+        <three-b>
+            <four/>
+        </three-b>
+    </two-c>
+</one>

@@ -72,9 +72,8 @@ template <typename T> struct DfltExpectFactory : public ExpectFactory {
 };
 
 class ExpectNetwork : public ExpectElement {
-    NetworkConnection net;
 public:
-    virtual void execute(ExpectProgram &program) const;
+    virtual std::string eval(ExpectProgram &program) const override;
     ExpectNetwork(const Attributes &);
 };
 
@@ -86,11 +85,11 @@ struct ExpectNetworkFactory : public DfltExpectFactory<ExpectNetwork> {
 ExpectNetworkFactory network;
 
 class ExpectListen : public ExpectElement {
-    ListenConnection net;
 public:
-    virtual void execute(ExpectProgram &program) const;
+    virtual std::string eval(ExpectProgram &program) const override;
     ExpectListen(const Attributes &);
 };
+
 struct ExpectListenFactory : public DfltExpectFactory<ExpectListen> {
     Parameter port{params, "port"};
     ExpectListenFactory() : DfltExpectFactory("listen") {}
@@ -114,7 +113,7 @@ ExpectVariableFactory variable;
 class ExpectModem : public ExpectElement {
     ModemConnection connection;
 public:
-    virtual void execute(ExpectProgram &program) const;
+    virtual std::string eval(ExpectProgram &program) const override;
     ExpectModem(const Attributes &attrs);
 };
 
@@ -176,13 +175,7 @@ public:
     ExpectTimeout(const Attributes &);
 };
 
-class ExpectChoose : public ExpectControlElement {
-public:
-    ExpectChoose();
-    virtual void execute(ExpectProgram &program) const;
-};
-
-class ExpectIf : public ExpectControlElement {
+class ExpectIf : public ExpectElement {
 public:
     ExpectIf(const Attributes &);
     virtual void execute(ExpectProgram &program) const;
@@ -339,7 +332,8 @@ telnetCommand(int command)
  */
 
 ExpectHandlers::ExpectHandlers()
-    : sp(0)
+    : parent(0)
+    , next(&parent)
 {
 }
 
@@ -347,29 +341,19 @@ ExpectHandlers::~ExpectHandlers()
 {
 }
 
-ExpectNode *
-ExpectHandlers::root()
-{
-    return stack[0];
-}
-
 void
 ExpectHandlers::characterData(const std::string &data)
 {
-    if (sp > 0 && dynamic_cast<ExpectControlElement *>(stack[sp - 1]))
-	return;
     addNode(new ExpectRawCharacterData(data, true));
 }
 
 void
 ExpectHandlers::addNode(ExpectNode *node)
 {
+    node->nextSibling = parent;
+    parent = *next = node;
+    next = &node->firstChild;
     node->lineNumber = parser->getCurrentLineNumber();
-    if (stack[sp])
-	stack[sp]->nextSibling = node;
-    else if (sp != 0)
-	stack[sp-1]->firstChild = node;
-    stack[sp] = node;
 }
 
 ExpectNode *
@@ -434,7 +418,8 @@ ExpectHandlers::getNode(const std::string &name, const Attributes &attributes)
         std::string filename;
         set(filename, attributes, "file");
 	ExpectHandlers handlers;
-	ExpatParser parser(handlers, "UTF-8");
+	ExpatParser parser;
+        parser.push(&handlers);
 	parser.parseFile(filename);
 	return handlers.root();
     }
@@ -452,13 +437,15 @@ ExpectHandlers::startElement(const std::string &name, const Attributes &attribut
 {
     ExpectNode *el = getNode(name, attributes);
     addNode(el);
-    stack[++sp] = 0;
 }
 
 void
 ExpectHandlers::endElement(const char *name)
 {
-    sp--;
+    *next = 0;
+    next = &parent->nextSibling;
+    if (parent->nextSibling)
+        parent = parent->nextSibling;
 }
 
 ExpectNode::ExpectNode()
@@ -935,7 +922,6 @@ ExpectVariable::write(ExpectProgram &program, std::ostream &os) const
 }
 
 ExpectListen::ExpectListen(const Attributes &attribs)
-    : net()
 {
     set(net.host, attribs, "host");
     set(net.service, attribs, "port");
@@ -1128,27 +1114,6 @@ Vt100EscapeCodes::Vt100EscapeCodes()
     me["f3"]      = "\033OR";
     me["f4"]      = "\033OS";
     // TODO XXX Finish me.
-}
-
-const ExpectNode *
-ExpectNodeFilter::search(const ExpectNode *node)
-{
-    switch (visit(node)) {
-	case Found:
-	    return node;
-	case Skip:
-	    return 0;
-	case Descend:
-	    for (ExpectNode *c = node->firstChild; c; c = c->nextSibling) {
-		const ExpectNode *found;
-		if ((found = search(c)) != 0)
-		    return found;
-	    }
-	    return 0;
-        default:
-            abort();
-            return 0;
-    }
 }
 
 ExpectNode *

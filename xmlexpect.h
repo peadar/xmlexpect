@@ -76,25 +76,14 @@ class ExpectNodeFilter;
 
 class ExpectNode {
 public:
-    ExpectNode *nextSibling;
     ExpectNode *firstChild;
+    ExpectNode *nextSibling;
     int lineNumber;
     ExpectFactory *type;
-    virtual void execute(ExpectProgram &program) const;
-    void executeChildren(ExpectProgram &program) const;
+    virtual std::string eval(ExpectProgram &program) const;
+    virtual ExpatParserHandlers *getHandlers() { return 0; }
     ExpectNode();
     virtual ~ExpectNode();
-};
-
-struct ExpectNodeFilter {
-    enum FilterResult
-    { Skip
-    , Descend
-    , Found };
-
-    virtual FilterResult visit(const ExpectNode *node) = 0;
-    const ExpectNode *search(const ExpectNode *node);
-
 };
 
 class ExpectCharacterData : public ExpectNode {
@@ -108,14 +97,10 @@ public:
     Attributes attributes;
 };
 
-class ExpectControlElement : public ExpectNode {
-    // Special element that will not receive "chardata" children.
-};
-
 struct ExpectHandlers : public ExpatParserHandlers {
-    ExpectNode *stack[1024];
-    int sp;
     void addNode(ExpectNode *);
+    ExpectNode *parent;
+    ExpectNode **next;
 protected:
     void startElement(const std::string &name, const Attributes &attributes);
     void characterData(const std::string &data);

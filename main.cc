@@ -21,7 +21,8 @@ main(int argc, char *argv[])
 	return usage();
     try {
         ExpectHandlers handlers;
-	ExpatParser parser(handlers);
+	ExpatParser parser;
+        parser.push(&handlers);
         parser.parseFile(argv[1]);
 	ExpectProgram expect(1024, variables);
 	int r = dup(0);

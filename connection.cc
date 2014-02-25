@@ -23,7 +23,7 @@ std::ostream &operator<<(std::ostream &, const addrinfo &);
 struct AddressLookup {
 public:
     addrinfo *addrInfo;
-    AddressLookup(std::string host, std::string service, int hintflags);
+    AddressLookup(const std::string &host, const std::string &service, int hintflags);
     ~AddressLookup();
 };
 
@@ -44,7 +44,8 @@ ResolverException::describe(std::ostream &os) const
     return os << function << ": " << gai_strerror(gaie);
 }
 
-AddressLookup::AddressLookup(const std::string host, const std::string service, int hintflags)
+AddressLookup::AddressLookup(const std::string &host, const std::string &service,
+        int hintflags)
 {
     int rc;
     struct addrinfo hints;

@@ -33,20 +33,8 @@ struct ModemConnection : public Connection {
     int connect() const;
 };
 
-struct NetworkConnection : public Connection {
-    std::string host;
-    std::string service;
-    NetworkConnection();
-    ~NetworkConnection();
-    int connect() const;
-};
+extern int netConnect(const std::string &host, const std::string &port);
+extern int netListen(const std::string &host, const std::string &port);
 
-struct ListenConnection : public Connection {
-    std::string host;
-    std::string service;
-    ListenConnection();
-    ~ListenConnection();
-    int connect() const;
-};
 
 #endif

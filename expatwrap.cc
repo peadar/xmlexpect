@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <sstream>
+#include <typeinfo>
 #include "util.h"
 #include "expatwrap.h"
 
@@ -26,11 +27,12 @@ ExpatParserHandlers_startElementTrampoline(void *userData, const XML_Char *name,
     ExpatParser *parser = static_cast<ExpatParser *>(userData);
     if (parser->stop)
 	return;
+    parser->depth++;
     Attributes cppattrs;
     for (size_t i = 0; attribs[i]; i += 2)
         cppattrs[attribs[i]] = attribs[i+1];
     try {
-	parser->handlers.startElement(name, cppattrs);
+	parser->handlerStack.top()->startElement(name, cppattrs);
     }
     catch (const Exception &ex) {
 	std::stringstream ss;
@@ -44,7 +46,14 @@ void
 ExpatParserHandlers_endElementTrampoline(void *userData, const XML_Char *name)
 {
     ExpatParser *parser = static_cast<ExpatParser *>(userData);
-    parser->handlers.endElement(name);
+    ExpatParserHandlers *h = parser->handlerStack.top();
+    if (h->pushDepth == parser->depth) {
+        h->pop();
+        parser->handlerStack.pop();
+        h = parser->handlerStack.top();
+    }
+    h->endElement(name);
+    parser->depth--;
 }
 
 extern "C" {
@@ -53,7 +62,7 @@ characterDataTrampoline(void *userData, const XML_Char *data, int len)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.characterData(std::string(data, len));
+	p->handlerStack.top()->characterData(std::string(data, len));
 }
 
 static void
@@ -61,7 +70,7 @@ processingInstructionTrampoline(void *userData, const XML_Char *target, const XM
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.processingInstruction(target, data);
+	p->handlerStack.top()->processingInstruction(target, data);
 }
 
 static void
@@ -69,7 +78,7 @@ commentTrampoline(void *userData, const XML_Char *cmnt)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.comment(cmnt);
+	p->handlerStack.top()->comment(cmnt);
 }
 
 static void
@@ -77,7 +86,7 @@ startCdataSectionTrampoline(void *userData)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.startCdataSection();
+	p->handlerStack.top()->startCdataSection();
 }
 
 static void
@@ -85,7 +94,7 @@ endCdataSectionTrampoline(void *userData)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.endCdataSection();
+	p->handlerStack.top()->endCdataSection();
 }
 
 static void
@@ -93,7 +102,7 @@ defaultDataTrampoline(void *userData, const XML_Char *data, int len)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.defaultData(std::string(data, len));
+	p->handlerStack.top()->defaultData(std::string(data, len));
 }
 
 static void
@@ -101,7 +110,7 @@ xmlDeclTrampoline(void *userData, const XML_Char *version, const XML_Char *encod
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.xmlDecl(version, encoding, standAlone);
+	p->handlerStack.top()->xmlDecl(version, encoding, standAlone);
 }
 
 static void
@@ -109,7 +118,7 @@ startDoctypeTrampoline(void *userData, const XML_Char *docTypeName, const XML_Ch
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.startDoctype(docTypeName, sysId, pubId, hasInternalSubset);
+	p->handlerStack.top()->startDoctype(docTypeName, sysId, pubId, hasInternalSubset);
 }
 
 static void
@@ -117,7 +126,7 @@ endDoctypeTrampoline(void *userData)
 {
     ExpatParser *p = static_cast<ExpatParser *>(userData);
     if (!p->stop)
-	p->handlers.endDoctype();
+	p->handlerStack.top()->endDoctype();
 }
 
 static int
@@ -129,7 +138,7 @@ externalEntityRefTrampoline(XML_Parser parser,
 {
     ExpatParser *p = static_cast<ExpatParser *>(XML_GetUserData(parser));
     if (!p->stop)
-	return p->handlers.externalEntityRef(context, base, systemId, publicId);
+	return p->handlerStack.top()->externalEntityRef(context, base, systemId, publicId);
     else
 	return -1;
 }
@@ -139,15 +148,13 @@ externalEntityRefTrampoline(XML_Parser parser,
 /*
  * ExpatParser
  */
-ExpatParser::ExpatParser(ExpatParserHandlers &handlers_, const XML_Char *encoding_, XML_Char sep_)
-    : handlers(handlers_)
+ExpatParser::ExpatParser(const std::string&& encoding_, XML_Char sep_)
+    : encoding(encoding_)
+    , separator(sep_)
+    , expatParser(XML_ParserCreateNS(encoding.c_str(), separator))
+    , depth(0)
+    , stop(false)
 {
-    handlers.parser = this;
-    encoding = strdup(encoding_);
-    separator = sep_;
-    expatParser = XML_ParserCreateNS(encoding, separator);
-    stop = false;
-
     // Setup trampolines from C-style callbacks to virtual methods
     XML_SetStartElementHandler(expatParser, ExpatParserHandlers_startElementTrampoline);
     XML_SetEndElementHandler(expatParser, ExpatParserHandlers_endElementTrampoline);
@@ -162,7 +169,6 @@ ExpatParser::ExpatParser(ExpatParserHandlers &handlers_, const XML_Char *encodin
     XML_SetStartDoctypeDeclHandler(expatParser, startDoctypeTrampoline);
     XML_SetEndDoctypeDeclHandler(expatParser, endDoctypeTrampoline);
     XML_SetParamEntityParsing(expatParser, XML_PARAM_ENTITY_PARSING_UNLESS_STANDALONE);
-
     // Give trampolines a pointer to "this", so they can do their work
     XML_SetUserData(expatParser, this);
 
@@ -188,15 +194,29 @@ ExpatParser::ExpatParser(ExpatParserHandlers &handlers_, const XML_Char *encodin
 #endif
 }
 
+void
+ExpatParser::push(ExpatParserHandlers *h)
+{
+    h->pushDepth = depth;
+    h->parser = this;
+    handlerStack.push(h);
+}
+
 ExpatParser::~ExpatParser()
 {
     XML_ParserFree(expatParser);
-    free(const_cast<char *>(encoding));
 }
 
 ExpatParserHandlers::ExpatParserHandlers()
 {
     parser = 0;
+}
+
+void
+ExpatParserHandlers::pop()
+{
+    std::clog << "popping parser handlers type " << typeid(*this).name() << std::endl;
+    delete this;
 }
 
 ExpatParserHandlers::~ExpatParserHandlers()
