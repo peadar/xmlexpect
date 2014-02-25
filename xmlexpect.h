@@ -89,10 +89,8 @@ struct ExpectNodeFilter {
     { Skip
     , Descend
     , Found };
-
     virtual FilterResult visit(const ExpectNode *node) = 0;
     const ExpectNode *search(const ExpectNode *node);
-
 };
 
 class ExpectCharacterData : public ExpectNode {

@@ -63,19 +63,16 @@ AddressLookup::~AddressLookup()
     freeaddrinfo(addrInfo);
 }
 
-
 std::ostream &operator<<(std::ostream &os, const addrinfo &ai)
 {
-
     char host[NI_MAXHOST];
     char service[NI_MAXSERV];
     int rc = getnameinfo(ai.ai_addr, ai.ai_addrlen, host, sizeof host, service,
 		sizeof service, NI_NUMERICHOST|NI_NUMERICSERV);
-
     if (rc)
-        return os << host << ":" << service;
-    else
         return os << "(name resolution failed)";
+    else
+        return os << host << ":" << service;
 }
 
 NetworkConnection::NetworkConnection(const char **settings, int facility)
