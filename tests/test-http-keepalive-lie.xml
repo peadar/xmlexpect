@@ -1,0 +1,15 @@
+<do>
+    <listen service="2080"/>
+    <timeout sec="50000"/>
+    <e><crlf/><crlf/></e>
+    <s>
+HTTP/1.1 200 all good<crlf/>
+Connection: Keep-Alive<crlf/>
+Content-Type: text/plain<crlf/>
+Content-Length: 13<crlf/>
+<crlf/>
+Hello World<crlf/>
+<crlf/>
+    </s>
+</do>
+
