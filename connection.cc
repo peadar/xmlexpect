@@ -148,6 +148,10 @@ ListenConnection::connect() const
     AddressLookup al(host, service, AI_PASSIVE);
     for (addrinfo *ai = al.addrInfo; ai; ai = ai->ai_next) {
 	if ((fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) != -1) {
+            static int one = 1;
+            if (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one) != 0)
+                 std::clog << "warning: can't set 'reuse address' option: "<< strerror(errno) << "\n";
+
             std::clog << "trying " << *ai;
 	    if (::bind(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
 		std::clog << "... success" << std::endl;
